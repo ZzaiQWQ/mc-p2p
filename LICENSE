@@ -1,13 +1,50 @@
-All Rights Reserved
+MC P2P Personal Non-Commercial Test License
 
 Copyright (c) 2026 ZzaiQWQ
 
-This project and all associated source code, documentation, assets, and build
-configuration are proprietary unless explicit written permission is granted by
-the copyright holder.
+This project is currently an unfinished test project. It is published mainly
+for visibility, testing, and personal learning. The project may run in some
+environments, but it is not complete and does not guarantee stability,
+availability, compatibility, or security.
 
-No permission is granted to copy, distribute, modify, sublicense, publish,
-commercially use, or create derivative works from this project.
+1. Personal non-commercial use
 
-Viewing the source code in this repository does not grant any license or usage
-rights. All rights are reserved by the copyright holder.
+You may download, view, build, and run this project for personal,
+non-commercial testing and learning purposes.
+
+2. Authorization required
+
+You must obtain explicit permission from the copyright holder before doing any
+of the following:
+
+- Commercial use.
+- Redistribution.
+- Publishing modified versions.
+- Using this project in derivative projects.
+- Packaging or providing this project as part of another product or service.
+- Deploying this project for public or organization-level use.
+
+3. Commercial use prohibited
+
+Commercial use is not allowed without explicit written authorization.
+
+4. No warranty
+
+This project is provided as-is. The author is not responsible for any loss,
+damage, network issue, account issue, data loss, or other consequence caused by
+using this project.
+
+5. Enforcement
+
+For ordinary personal non-commercial testing, the author generally does not
+intend to pursue liability. However, the author reserves all rights to stop,
+restrict, or pursue unauthorized use, especially commercial use,
+redistribution, malicious use, or misleading publication.
+
+6. Future license
+
+After the project is fully completed, the author may replace this temporary
+test license with a more open license. Until a new license is published, this
+license applies.
+
+All rights not explicitly granted above are reserved by the copyright holder.
