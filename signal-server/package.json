@@ -1,0 +1,12 @@
+{
+  "name": "mc-p2p-signal-server",
+  "version": "1.0.0",
+  "description": "Minecraft P2P 联机信令服务器 - 媒婆",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

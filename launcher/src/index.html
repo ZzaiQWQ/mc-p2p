@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MC P2P Launcher</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- 动态背景 -->
+    <div class="bg-wrapper">
+        <div class="blob blob-1"></div>
+        <div class="blob blob-2"></div>
+    </div>
+
+    <div class="app-container">
+        <!-- 头部 -->
+        <header>
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+                <h1>MC Quantum Link</h1>
+            </div>
+            <span class="status-badge disconnected" id="server-status">Signal: Disconnected</span>
+        </header>
+
+        <!-- 主界面选项卡 -->
+        <main class="glass-panel">
+            <div class="tabs">
+                <button class="tab-btn active" data-target="host-panel">我是房主</button>
+                <button class="tab-btn" data-target="guest-panel">我是访客</button>
+            </div>
+
+            <!-- 房主面板 -->
+            <div id="host-panel" class="panel active">
+                <p class="desc">创建房间码分享给基友，内网穿透直连你的本地游戏。</p>
+                <div class="input-group">
+                    <label>本地房间端口</label>
+                    <div style="display:flex; gap:8px;">
+                        <input type="number" id="host-port" value="25565" min="1" max="65535" placeholder="默认 25565" style="flex:1;">
+                        <button class="secondary-btn" id="btn-detect-port" title="自动侦测 MC 局域网端口">侦测</button>
+                    </div>
+                </div>
+                <button class="primary-btn glow-btn" id="btn-create">创建联机房间</button>
+                
+                <div class="room-display hidden" id="host-room-display">
+                    <span>您的房间码</span>
+                    <h2 class="room-code mono" id="host-room-code">----</h2>
+                    <span class="sub-text">等待访客加入...</span>
+                </div>
+            </div>
+
+            <!-- 访客面板 -->
+            <div id="guest-panel" class="panel">
+                <p class="desc">输入房主给你的房间码，瞬间加入游戏。</p>
+                <div class="input-group">
+                    <label>基友房间码</label>
+                    <input type="text" id="guest-room-code" class="mono" placeholder="输入 6 位字母" maxlength="6" style="text-transform: uppercase;">
+                </div>
+                <div class="input-group">
+                    <label>本地代理端口（留空自动分配）</label>
+                    <input type="number" id="guest-local-port" value="" min="1" max="65535" placeholder="默认自动 25565">
+                </div>
+                <button class="primary-btn glow-btn" id="btn-join">连接房间</button>
+            </div>
+        </main>
+
+        <!-- 日志终端面板 -->
+        <div class="terminal-panel glass-panel">
+            <div class="terminal-header">
+                <span>System Logs</span>
+                <button class="clear-btn" id="btn-clear-log">Clear</button>
+            </div>
+            <div class="terminal-output mono" id="log-output">
+                <div>[System] 引擎初始化完毕...</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="main.js" defer></script>
+</body>
+</html>
