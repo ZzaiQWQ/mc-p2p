@@ -18,6 +18,8 @@ pnpm-debug.log*
 .env
 .env.*
 !.env.example
+**/config.local.js
+**/config.local.*
 
 # Editors and OS files
 .idea/

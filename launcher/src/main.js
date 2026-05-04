@@ -4,8 +4,8 @@ const { listen } = window.__TAURI__.event;
 let ws = null;
 let currentRole = null; // 'host' or 'guest'
 
-// ========== 信令服务器地址（部署后改为你的域名，必须用 wss://） ==========
-const SIGNAL_SERVER_URL = 'wss://your-domain.com';
+// ========== 信令服务器地址 ==========
+const SIGNAL_SERVER_URL = window.MC_P2P_CONFIG?.signalServerUrl || 'wss://your-domain.com';
 
 // ========== 自动重连配置 ==========
 let reconnectAttempts = 0;
