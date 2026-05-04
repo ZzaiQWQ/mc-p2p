@@ -45,25 +45,38 @@ async fn detect_mc_port(app: AppHandle) -> Result<u16, String> {
             &Ipv4Addr::UNSPECIFIED
         ).map_err(|e| format!("加入组播组失败: {}", e))?;
 
-        socket.set_read_timeout(Some(std::time::Duration::from_secs(10)))
+        socket.set_read_timeout(Some(std::time::Duration::from_millis(800)))
             .map_err(|e| e.to_string())?;
 
         let mut buf = [0u8; 1024];
-        let (len, _) = socket.recv_from(&mut buf)
-            .map_err(|_| "10 秒内未检测到 MC 局域网广播，请先在游戏中打开「对局域网开放」".to_string())?;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
 
-        let msg = String::from_utf8_lossy(&buf[..len]);
-        if let Some(start) = msg.find("[AD]") {
-            if let Some(end) = msg.find("[/AD]") {
-                let port_str = &msg[start + 4..end];
-                if let Ok(port) = port_str.parse::<u16>() {
-                    println!("[MC侦测] 发现 MC 局域网端口: {}", port);
-                    return Ok(port);
+        while std::time::Instant::now() < deadline {
+            match socket.recv_from(&mut buf) {
+                Ok((len, _)) => {
+                    let msg = String::from_utf8_lossy(&buf[..len]);
+
+                    // 忽略本程序访客代理发出的 LAN 广播，避免切换到房主时侦测到旧代理端口。
+                    if msg.contains("MC Quantum Link (P2P)") {
+                        continue;
+                    }
+
+                    if let Some(start) = msg.find("[AD]") {
+                        if let Some(end) = msg.find("[/AD]") {
+                            let port_str = &msg[start + 4..end];
+                            if let Ok(port) = port_str.parse::<u16>() {
+                                println!("[MC侦测] 发现 MC 局域网端口: {}", port);
+                                return Ok(port);
+                            }
+                        }
+                    }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock || e.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(e) => return Err(format!("读取 MC 局域网广播失败: {}", e)),
             }
         }
 
-        Err("检测到广播但无法解析端口信息".to_string())
+        Err("10 秒内未检测到真实 MC 局域网广播，请先在游戏中打开「对局域网开放」".to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking 失败: {}", e))?
@@ -103,7 +116,7 @@ async fn host_step2_connect(
     };
     let app_clone = app.clone();
     tokio::spawn(async move {
-        let proxy_fut = proxy::start_host_proxy(endpoint, mc_port);
+        let proxy_fut = proxy::start_host_proxy(endpoint, mc_port, app_clone.clone());
         tokio::pin!(proxy_fut);
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -164,7 +177,7 @@ async fn guest_step2_connect(
     };
     let app_clone = app.clone();
     tokio::spawn(async move {
-        let proxy_fut = proxy::run_guest_proxy(listener, connection);
+        let proxy_fut = proxy::run_guest_proxy(listener, connection, app_clone.clone());
         tokio::pin!(proxy_fut);
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -239,7 +252,6 @@ fn cancel_all_proxies(state: &AppState) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             pending_sockets: Mutex::new(HashMap::new()),
             lan_broadcast_cancel: Mutex::new(None),

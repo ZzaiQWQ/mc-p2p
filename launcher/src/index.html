@@ -1,84 +1,122 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MC P2P Launcher</title>
+    <title>MC Quantum Link</title>
     <link rel="stylesheet" href="styles.css">
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <!-- 动态背景 -->
-    <div class="bg-wrapper">
-        <div class="blob blob-1"></div>
-        <div class="blob blob-2"></div>
-    </div>
-
-    <div class="app-container">
-        <!-- 头部 -->
-        <header>
-            <div class="logo">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-                <h1>MC Quantum Link</h1>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                        <path d="M4 7.2L12 3L20 7.2V16.8L12 21L4 16.8V7.2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M4.5 7.5L12 11.7L19.5 7.5" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+                        <path d="M12 12V20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1>MC Quantum Link</h1>
+                    <p>P2P 局域网联机隧道</p>
+                </div>
             </div>
-            <span class="status-badge disconnected" id="server-status">Signal: Disconnected</span>
+            <div class="topbar-actions">
+                <span class="status-badge disconnected" id="server-status">Signal: Disconnected</span>
+                <button class="ghost-btn" id="btn-reset-connection" type="button">重置连接</button>
+            </div>
         </header>
 
-        <!-- 主界面选项卡 -->
-        <main class="glass-panel">
-            <div class="tabs">
-                <button class="tab-btn active" data-target="host-panel">我是房主</button>
-                <button class="tab-btn" data-target="guest-panel">我是访客</button>
-            </div>
+        <main class="workspace">
+            <section class="setup-panel">
+                <div class="tabs" role="tablist" aria-label="联机模式">
+                    <button class="tab-btn active" data-target="host-panel" type="button">我是房主</button>
+                    <button class="tab-btn" data-target="guest-panel" type="button">我是访客</button>
+                </div>
 
-            <!-- 房主面板 -->
-            <div id="host-panel" class="panel active">
-                <p class="desc">创建房间码分享给基友，内网穿透直连你的本地游戏。</p>
-                <div class="input-group">
-                    <label>本地房间端口</label>
-                    <div style="display:flex; gap:8px;">
-                        <input type="number" id="host-port" value="25565" min="1" max="65535" placeholder="默认 25565" style="flex:1;">
-                        <button class="secondary-btn" id="btn-detect-port" title="自动侦测 MC 局域网端口">侦测</button>
+                <div id="host-panel" class="panel active">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>创建房间</h2>
+                            <p>把本地 MC 局域网端口转成一个可加入的房间码。</p>
+                        </div>
+                        <span class="state-chip idle" id="host-session-state">未创建</span>
+                    </div>
+
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>本地房间端口</span>
+                            <div class="field-row">
+                                <input type="number" id="host-port" value="25565" min="1" max="65535" placeholder="默认 25565">
+                                <button class="secondary-btn" id="btn-detect-port" type="button">侦测</button>
+                            </div>
+                        </label>
+                    </div>
+
+                    <button class="primary-btn" id="btn-create" type="button">创建联机房间</button>
+
+                    <div class="session-box" id="host-room-display">
+                        <div>
+                            <span class="session-label">房间码</span>
+                            <strong class="room-code mono" id="host-room-code">------</strong>
+                        </div>
+                        <div class="session-meta">
+                            <span id="host-room-hint">创建后会显示房间码</span>
+                            <span id="host-guest-count">访客 0/7</span>
+                        </div>
                     </div>
                 </div>
-                <button class="primary-btn glow-btn" id="btn-create">创建联机房间</button>
-                
-                <div class="room-display hidden" id="host-room-display">
-                    <span>您的房间码</span>
-                    <h2 class="room-code mono" id="host-room-code">----</h2>
-                    <span class="sub-text">等待访客加入...</span>
-                </div>
-            </div>
 
-            <!-- 访客面板 -->
-            <div id="guest-panel" class="panel">
-                <p class="desc">输入房主给你的房间码，瞬间加入游戏。</p>
-                <div class="input-group">
-                    <label>基友房间码</label>
-                    <input type="text" id="guest-room-code" class="mono" placeholder="输入 6 位字母" maxlength="6" style="text-transform: uppercase;">
+                <div id="guest-panel" class="panel">
+                    <div class="panel-heading">
+                        <div>
+                            <h2>加入房间</h2>
+                            <p>输入房主给你的房间码，成功后会在本地生成代理端口。</p>
+                        </div>
+                        <span class="state-chip idle" id="guest-session-state">未加入</span>
+                    </div>
+
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>房间码</span>
+                            <input type="text" id="guest-room-code" class="mono" placeholder="输入 6 位字母" maxlength="6">
+                        </label>
+                        <label class="field">
+                            <span>连接端代理端口</span>
+                            <input type="number" id="guest-local-port" value="" min="1" max="65535" placeholder="留空自动轮换: 房主端口 > 25565 > 25566">
+                        </label>
+                    </div>
+
+                    <button class="primary-btn" id="btn-join" type="button">连接房间</button>
+
+                    <div class="session-box">
+                        <div>
+                            <span class="session-label">连接地址</span>
+                            <strong class="local-endpoint mono" id="guest-local-endpoint">等待建立隧道</strong>
+                        </div>
+                        <div class="session-meta">
+                            <span id="guest-room-hint">加入后会保留当前连接状态</span>
+                            <span id="guest-tunnel-state">Tunnel: Idle</span>
+                        </div>
+                    </div>
                 </div>
-                <div class="input-group">
-                    <label>本地代理端口（留空自动分配）</label>
-                    <input type="number" id="guest-local-port" value="" min="1" max="65535" placeholder="默认自动 25565">
+            </section>
+
+            <section class="log-panel">
+                <div class="log-header">
+                    <div>
+                        <h2>运行日志</h2>
+                        <p id="log-summary">等待操作</p>
+                    </div>
+                    <button class="ghost-btn" id="btn-clear-log" type="button">清空</button>
                 </div>
-                <button class="primary-btn glow-btn" id="btn-join">连接房间</button>
-            </div>
+                <div class="terminal-output mono" id="log-output">
+                    <div>[System] 引擎初始化完毕。</div>
+                </div>
+            </section>
         </main>
-
-        <!-- 日志终端面板 -->
-        <div class="terminal-panel glass-panel">
-            <div class="terminal-header">
-                <span>System Logs</span>
-                <button class="clear-btn" id="btn-clear-log">Clear</button>
-            </div>
-            <div class="terminal-output mono" id="log-output">
-                <div>[System] 引擎初始化完毕...</div>
-            </div>
-        </div>
     </div>
 
     <script src="config.js"></script>
