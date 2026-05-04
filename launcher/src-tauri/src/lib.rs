@@ -116,7 +116,8 @@ async fn host_step2_connect(
     };
     let app_clone = app.clone();
     tokio::spawn(async move {
-        let proxy_fut = proxy::start_host_proxy(endpoint, mc_port, app_clone.clone());
+        let proxy_cancel = cancel_token.clone();
+        let proxy_fut = proxy::start_host_proxy(endpoint, mc_port, app_clone.clone(), proxy_cancel);
         tokio::pin!(proxy_fut);
         tokio::select! {
             _ = cancel_token.cancelled() => {
@@ -177,7 +178,8 @@ async fn guest_step2_connect(
     };
     let app_clone = app.clone();
     tokio::spawn(async move {
-        let proxy_fut = proxy::run_guest_proxy(listener, connection, app_clone.clone());
+        let proxy_cancel = cancel_token.clone();
+        let proxy_fut = proxy::run_guest_proxy(listener, connection, app_clone.clone(), proxy_cancel);
         tokio::pin!(proxy_fut);
         tokio::select! {
             _ = cancel_token.cancelled() => {

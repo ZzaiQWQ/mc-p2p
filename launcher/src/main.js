@@ -96,6 +96,55 @@ function getGuestAutoPort(hostPort) {
     return candidates[Math.min(guestAutoPortAttempt, candidates.length - 1)] || 25565;
 }
 
+function sendCreateRoomRequest() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "create_room" }));
+}
+
+function sendJoinRoomRequest(roomCode) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: "join_room", roomCode }));
+}
+
+function buildSignalReconnectAction() {
+    if (currentRole === "host") {
+        return () => {
+            peerNegotiations.clear();
+            activeHostPeers.clear();
+            setRoleState("host", {
+                roomCode: "",
+                status: "connecting",
+                busy: true,
+                connectedGuestCount: 0,
+            });
+            log("信令已重连，正在重新创建房间...", "info");
+            sendCreateRoomRequest();
+        };
+    }
+
+    if (currentRole === "guest") {
+        const roomCode = state.guest.roomCode.trim().toUpperCase();
+        if (roomCode.length !== 6) return null;
+
+        return () => {
+            step1Done = false;
+            pendingPeerIp = null;
+            myStunIp = null;
+            setRoleState("guest", {
+                roomCode,
+                hostPort: "",
+                assignedPort: "",
+                status: "connecting",
+                busy: true,
+            });
+            log(`信令已重连，正在重新加入房间 ${roomCode}...`, "info");
+            sendJoinRoomRequest(roomCode);
+        };
+    }
+
+    return null;
+}
+
 function setRoleState(role, patch) {
     Object.assign(state[role], patch);
     render();
@@ -338,7 +387,10 @@ function connectSignalServer(onOpen) {
         return;
     }
 
-    ws.onopen = () => {
+    const socket = ws;
+
+    socket.onopen = () => {
+        if (ws !== socket) return;
         reconnectAttempts = 0;
         setSignal("connected");
         log("信令服务器已连接", "success");
@@ -348,21 +400,25 @@ function connectSignalServer(onOpen) {
         }
     };
 
-    ws.onclose = (event) => {
+    socket.onclose = (event) => {
+        if (ws !== socket) return;
         setSignal("disconnected");
         if (event.code !== 1000) {
-            log("信令连接断开，准备自动重连...", "error");
+            pendingOnOpen = buildSignalReconnectAction();
+            log("信令连接断开，准备自动重连并恢复房间状态...", "error");
             scheduleReconnect();
         } else {
             log("信令连接已关闭", "info");
         }
     };
 
-    ws.onerror = () => {
+    socket.onerror = () => {
+        if (ws !== socket) return;
         log("信令服务器连接错误", "error");
     };
 
-    ws.onmessage = async (e) => {
+    socket.onmessage = async (e) => {
+        if (ws !== socket) return;
         let msg;
         try {
             msg = JSON.parse(e.data);
@@ -608,7 +664,7 @@ els.btnCreate.addEventListener("click", async () => {
     });
 
     connectSignalServer(() => {
-        ws.send(JSON.stringify({ type: "create_room" }));
+        sendCreateRoomRequest();
     });
 });
 
@@ -643,7 +699,7 @@ els.btnJoin.addEventListener("click", async () => {
     });
 
     connectSignalServer(() => {
-        ws.send(JSON.stringify({ type: "join_room", roomCode: code }));
+        sendJoinRoomRequest(code);
     });
 });
 
