@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    launcher_lib::run();
+    mc_quantum_link_lib::run();
 }

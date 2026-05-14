@@ -25,10 +25,38 @@ struct AppState {
 
 #[tauri::command]
 async fn step1_get_ip(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let (socket, addr) = punch::get_public_address().await?;
-    let key = addr.to_string();
+    let (socket, addrs) = punch::get_public_addresses().await?;
+    let candidates: Vec<String> = addrs.iter().map(|addr| addr.to_string()).collect();
+    let key = candidates
+        .first()
+        .cloned()
+        .ok_or("没有可用的 STUN 候选地址".to_string())?;
     state.pending_sockets.lock().unwrap().insert(key.clone(), socket);
-    Ok(key)
+    Ok(candidates.join(","))
+}
+
+#[tauri::command]
+async fn diagnose_network() -> Result<String, String> {
+    punch::diagnose_nat().await
+}
+
+fn parse_peer_addrs(value: &str) -> Result<Vec<SocketAddr>, String> {
+    let mut addrs = Vec::new();
+    for item in value.split(',') {
+        let candidate = item.trim();
+        if candidate.is_empty() {
+            continue;
+        }
+        let addr = SocketAddr::from_str(candidate).map_err(|e| format!("无效打洞地址 {}: {}", candidate, e))?;
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
+        }
+    }
+    if addrs.is_empty() {
+        Err("没有可用的对方打洞地址".to_string())
+    } else {
+        Ok(addrs)
+    }
 }
 
 /// 自动侦测本机 MC 局域网广播端口（房主用）
@@ -99,9 +127,9 @@ async fn host_step2_connect(
             .ok_or(format!("socket {} 已过期，请重试", stun_addr))?
     };
 
-    let guest_addr = SocketAddr::from_str(&guest_ip).map_err(|e| e.to_string())?;
-    emit_log(&app, "开始用同一端口向对方盲发打洞包...");
-    let (punched_socket, actual_guest_addr) = punch::hole_punch(socket, guest_addr).await?;
+    let guest_addrs = parse_peer_addrs(&guest_ip)?;
+    emit_log(&app, format!("开始用同一端口向对方 {} 个候选地址打洞...", guest_addrs.len()));
+    let (punched_socket, actual_guest_addr) = punch::hole_punch(socket, guest_addrs).await?;
     emit_log(&app, format!("实际访客打洞地址: {}", actual_guest_addr));
     emit_log(&app, "NAT 洞口突破成功！");
     let std_socket = punched_socket.into_std().map_err(|e| e.to_string())?;
@@ -151,9 +179,9 @@ async fn guest_step2_connect(
             .remove(&stun_addr)
             .ok_or(format!("socket {} 已过期，请重试", stun_addr))?
     };
-    let host_addr = SocketAddr::from_str(&host_ip).map_err(|e| e.to_string())?;
-    emit_log(&app, "开始用同一端口向对方盲发打洞包...");
-    let (punched_socket, actual_host_addr) = punch::hole_punch(socket, host_addr).await?;
+    let host_addrs = parse_peer_addrs(&host_ip)?;
+    emit_log(&app, format!("开始用同一端口向对方 {} 个候选地址打洞...", host_addrs.len()));
+    let (punched_socket, actual_host_addr) = punch::hole_punch(socket, host_addrs).await?;
     emit_log(&app, format!("实际房主打洞地址: {}", actual_host_addr));
     emit_log(&app, "NAT 洞口突破成功！");
     let std_socket = punched_socket.into_std().map_err(|e| e.to_string())?;
@@ -261,6 +289,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             step1_get_ip,
+            diagnose_network,
             detect_mc_port,
             host_step2_connect,
             guest_step2_connect,

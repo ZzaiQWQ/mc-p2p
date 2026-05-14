@@ -1,7 +1,38 @@
+use std::collections::BTreeSet;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::UdpSocket as TokioUdpSocket;
 use rand::Rng;
+
+fn stun_server_pool() -> Vec<&'static str> {
+    vec![
+        "stun.qq.com:3478",
+        "stun.cloudflare.com:3478",
+        "stun.l.google.com:19302",
+        "stun.miwifi.com:3478",
+        "stun1.l.google.com:19302",
+        "stun.douyucdn.cn:3478",
+        "stun2.l.google.com:19302",
+        "stun1.douyucdn.cn:3478",
+        "stun3.l.google.com:19302",
+        "39.107.142.158:3478",
+        "stun4.l.google.com:19302",
+        "stun.chat.bilibili.com:3478",
+        "global.stun.twilio.com:3478",
+        "stun.hitv.com:3478",
+        "jp1.stun.twilio.com:3478",
+        "stun.cdnbye.com:3478",
+        "sg1.stun.twilio.com:3478",
+        "us1.stun.twilio.com:3478",
+        "us2.stun.twilio.com:3478",
+        "stun.nextcloud.com:3478",
+        "stun.nextcloud.com:443",
+        "stunserver.stunprotocol.org:3478",
+        "stun.stunprotocol.org:3478",
+        "stun.voip.blackberry.com:3478",
+        "stun.sipnet.ru:3478",
+    ]
+}
 
 // 构建简单的 STUN Binding Request (RFC 5389)
 fn build_stun_request() -> ([u8; 12], Vec<u8>) {
@@ -90,16 +121,57 @@ fn parse_stun_response(resp: &[u8], expected_txn_id: &[u8; 12]) -> Option<Socket
 
 // 步骤 2.1: 获取自身的公网 IP 和端口（连接到 STUN）
 // 用 spawn_blocking 包裹阻塞 I/O，避免冻结 tokio 线程
+pub async fn get_public_addresses() -> Result<(std::net::UdpSocket, Vec<SocketAddr>), String> {
+    tokio::task::spawn_blocking(|| {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        socket.set_read_timeout(Some(Duration::from_millis(900))).unwrap();
+        socket.set_nonblocking(false).unwrap();
+
+        let mut mapped_addrs = Vec::new();
+        for stun_server in stun_server_pool() {
+            let (txn_id, req) = build_stun_request();
+
+            if socket.send_to(&req, stun_server).is_ok() {
+                let mut buf = [0; 1024];
+                if let Ok((len, _)) = socket.recv_from(&mut buf) {
+                    if let Some(addr) = parse_stun_response(&buf[..len], &txn_id) {
+                        if !mapped_addrs.contains(&addr) {
+                            println!("[STUN] 候选地址: {} <= {}", addr, stun_server);
+                            mapped_addrs.push(addr);
+                        }
+                    }
+                }
+            }
+
+            if mapped_addrs.len() >= 6 {
+                break;
+            }
+        }
+
+        if mapped_addrs.is_empty() {
+            Err("无法通过 STUN 获取公网 IP (可能 UDP/STUN 不通，建议回退到中继)".to_string())
+        } else {
+            Ok((socket, mapped_addrs))
+        }
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking 失败: {}", e))?
+}
+
+#[allow(dead_code)]
 pub async fn get_public_address() -> Result<(std::net::UdpSocket, SocketAddr), String> {
     tokio::task::spawn_blocking(|| {
         let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        socket.set_read_timeout(Some(Duration::from_millis(1200))).unwrap();
         socket.set_nonblocking(false).unwrap();
 
         // 国内优先，国外备用（各组内部随机打乱分散负载）
         let mut cn_servers = [
             "stun.miwifi.com:3478",          // 小米
             "stun.qq.com:3478",              // 腾讯
+            "stun.douyucdn.cn:3478",
+            "stun1.douyucdn.cn:3478",
+            "39.107.142.158:3478",
             "stun.chat.bilibili.com:3478",   // B站
             "stun.hitv.com:3478",            // 华数TV
             "stun.cdnbye.com:3478",          // CDNBye
@@ -108,7 +180,17 @@ pub async fn get_public_address() -> Result<(std::net::UdpSocket, SocketAddr), S
             "stun.l.google.com:19302",       // Google
             "stun1.l.google.com:19302",      // Google 2
             "stun2.l.google.com:19302",      // Google 3
+            "stun3.l.google.com:19302",
+            "stun4.l.google.com:19302",
             "stun.cloudflare.com:3478",      // Cloudflare
+            "global.stun.twilio.com:3478",
+            "jp1.stun.twilio.com:3478",
+            "sg1.stun.twilio.com:3478",
+            "us1.stun.twilio.com:3478",
+            "us2.stun.twilio.com:3478",
+            "stun.nextcloud.com:3478",
+            "stun.nextcloud.com:443",
+            "stunserver.stunprotocol.org:3478",
             "stun.stunprotocol.org:3478",    // 开源社区
             "stun.voip.blackberry.com:3478", // BlackBerry
             "stun.sipnet.ru:3478",           // SipNet
@@ -150,11 +232,99 @@ pub async fn get_public_address() -> Result<(std::net::UdpSocket, SocketAddr), S
 
 // 步骤 2.2: 使用获取的 UdpSocket 向对端疯狂发送握手包，实现打洞
 // 当收到对方的包时，认为打洞成功，将 Socket 交给 Quinn 使用
-pub async fn hole_punch(socket: std::net::UdpSocket, peer_addr: SocketAddr) -> Result<(TokioUdpSocket, SocketAddr), String> {
+pub async fn diagnose_nat() -> Result<String, String> {
+    tokio::task::spawn_blocking(|| {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        socket.set_read_timeout(Some(Duration::from_millis(1200))).map_err(|e| e.to_string())?;
+        socket.set_nonblocking(false).map_err(|e| e.to_string())?;
+
+        let local_addr = socket.local_addr().map_err(|e| e.to_string())?;
+        let stun_servers = [
+            "stun.qq.com:3478",
+            "stun.miwifi.com:3478",
+            "stun.douyucdn.cn:3478",
+            "stun1.douyucdn.cn:3478",
+            "39.107.142.158:3478",
+            "stun.chat.bilibili.com:3478",
+            "stun.hitv.com:3478",
+            "stun.cdnbye.com:3478",
+            "stun.cloudflare.com:3478",
+            "stun.l.google.com:19302",
+            "stun1.l.google.com:19302",
+            "stun2.l.google.com:19302",
+            "stun3.l.google.com:19302",
+            "stun4.l.google.com:19302",
+            "global.stun.twilio.com:3478",
+            "jp1.stun.twilio.com:3478",
+            "sg1.stun.twilio.com:3478",
+            "us1.stun.twilio.com:3478",
+            "us2.stun.twilio.com:3478",
+            "stun.nextcloud.com:3478",
+            "stun.nextcloud.com:443",
+            "stunserver.stunprotocol.org:3478",
+            "stun.stunprotocol.org:3478",
+        ];
+
+        let mut mapped_addrs = Vec::new();
+        let mut lines = vec![
+            "网络检测：同一个 UDP 端口访问多个 STUN".to_string(),
+            format!("本地 UDP 端口: {}", local_addr.port()),
+        ];
+
+        for stun_server in stun_servers {
+            let (txn_id, req) = build_stun_request();
+            if let Err(e) = socket.send_to(&req, stun_server) {
+                lines.push(format!("{} => 发送失败: {}", stun_server, e));
+                continue;
+            }
+
+            let mut buf = [0; 1024];
+            match socket.recv_from(&mut buf) {
+                Ok((len, _)) => {
+                    if let Some(addr) = parse_stun_response(&buf[..len], &txn_id) {
+                        lines.push(format!("{} => {}", stun_server, addr));
+                        mapped_addrs.push(addr);
+                    } else {
+                        lines.push(format!("{} => 响应无效", stun_server));
+                    }
+                }
+                Err(e) => {
+                    lines.push(format!("{} => 超时/失败: {}", stun_server, e));
+                }
+            }
+        }
+
+        let unique_ips: BTreeSet<String> = mapped_addrs.iter().map(|addr| addr.ip().to_string()).collect();
+        let unique_ports: BTreeSet<u16> = mapped_addrs.iter().map(|addr| addr.port()).collect();
+
+        lines.push(format!("成功 STUN 数量: {}/{}", mapped_addrs.len(), stun_servers.len()));
+        if mapped_addrs.is_empty() {
+            lines.push("判断: UDP/STUN 基本不可用，P2P 打洞大概率失败。".to_string());
+        } else if unique_ports.len() == 1 {
+            lines.push("判断: 公网端口稳定，NAT 对 P2P 比较友好。".to_string());
+        } else {
+            lines.push("判断: 公网端口会随目标变化，疑似对称/严格 NAT，P2P 成功率低。".to_string());
+        }
+
+        if unique_ips.len() > 1 {
+            lines.push("注意: 不同 STUN 看到的公网 IP 不一致，可能存在多出口/代理/复杂 NAT。".to_string());
+        }
+
+        Ok(lines.join("\n"))
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking 失败: {}", e))?
+}
+
+pub async fn hole_punch(socket: std::net::UdpSocket, peer_addrs: Vec<SocketAddr>) -> Result<(TokioUdpSocket, SocketAddr), String> {
+    if peer_addrs.is_empty() {
+        return Err("没有可用的对方打洞地址".to_string());
+    }
+
     socket.set_nonblocking(true).unwrap();
     let async_socket = TokioUdpSocket::from_std(socket).map_err(|e| e.to_string())?;
     
-    println!("[UDP 打洞] 开始向 {} 尝试盲发打洞...", peer_addr);
+    println!("[UDP 打洞] 开始向 {} 个候选地址尝试盲发打洞...", peer_addrs.len());
     let punch_msg = b"PUNCH_HOLE_MAGIC";
     let mut buf = [0; 1024];
     
@@ -168,13 +338,15 @@ pub async fn hole_punch(socket: std::net::UdpSocket, peer_addr: SocketAddr) -> R
         }
 
         // 持续发送
-        let _ = async_socket.send_to(punch_msg, peer_addr).await;
+        for peer_addr in peer_addrs.iter() {
+            let _ = async_socket.send_to(punch_msg, peer_addr).await;
+        }
         
         // 尝试清空并检查接收缓冲区的所有数据包
         while let Ok((len, src)) = async_socket.try_recv_from(&mut buf) {
-            let same_peer = src == peer_addr || src.ip() == peer_addr.ip();
+            let same_peer = peer_addrs.iter().any(|peer_addr| src == *peer_addr || src.ip() == peer_addr.ip());
             if same_peer && &buf[..len] == punch_msg {
-                println!("[UDP 打洞] 成功！收到 {} 的打洞包（信令地址: {}）", src, peer_addr);
+                println!("[UDP 打洞] 成功！收到 {} 的打洞包", src);
                 // 再给对方连发几包，确保对方跳出循环
                 for _ in 0..5 {
                     let _ = async_socket.send_to(punch_msg, src).await;

@@ -1,7 +1,8 @@
 const tauriApi = window.__TAURI__ || {};
 const invoke = tauriApi.core?.invoke || (async (command) => {
     if (command === "detect_mc_port") return 25565;
-    if (command === "step1_get_ip") return "127.0.0.1:30000";
+    if (command === "step1_get_ip") return "127.0.0.1:30000,127.0.0.1:30001";
+    if (command === "diagnose_network") return "浏览器预览模式无法检测 NAT";
     return undefined;
 });
 const listen = tauriApi.event?.listen || (() => Promise.resolve(() => {}));
@@ -21,6 +22,24 @@ let step1Done = false;
 let pendingPeerIp = null;
 let myStunIp = null;
 let guestAutoPortAttempt = 0;
+
+function normalizeCandidates(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item).trim()).filter(Boolean);
+    }
+    return String(value || "")
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function candidatesToWire(candidates) {
+    return normalizeCandidates(candidates).join(",");
+}
+
+function primaryCandidate(candidates) {
+    return normalizeCandidates(candidates)[0] || "";
+}
 
 const state = {
     activePanel: "host-panel",
@@ -50,6 +69,7 @@ const els = {
     btnCreate: document.getElementById("btn-create"),
     btnJoin: document.getElementById("btn-join"),
     btnReset: document.getElementById("btn-reset-connection"),
+    btnNetworkTest: document.getElementById("btn-network-test"),
     btnClearLog: document.getElementById("btn-clear-log"),
     btnDetectPort: document.getElementById("btn-detect-port"),
     hostPort: document.getElementById("host-port"),
@@ -292,6 +312,25 @@ els.btnReset.addEventListener("click", () => {
     resetConnections();
 });
 
+els.btnNetworkTest.addEventListener("click", async () => {
+    els.btnNetworkTest.disabled = true;
+    els.btnNetworkTest.textContent = "检测中";
+    log("开始 NAT/UDP 网络检测...", "info");
+    try {
+        const report = await invoke("diagnose_network");
+        String(report).split(/\r?\n/).filter(Boolean).forEach((line) => {
+            const isBad = line.includes("失败") || line.includes("超时") || line.includes("疑似") || line.includes("不可用");
+            const isGood = line.includes("稳定") || line.includes("友好");
+            log(`[Network] ${line}`, isBad ? "error" : (isGood ? "success" : "info"));
+        });
+    } catch (err) {
+        log(`网络检测失败: ${err}`, "error");
+    } finally {
+        els.btnNetworkTest.disabled = false;
+        els.btnNetworkTest.textContent = "NAT检测";
+    }
+});
+
 els.hostPort.addEventListener("input", () => {
     state.host.port = els.hostPort.value;
 });
@@ -504,21 +543,21 @@ async function handlePeerReady(peerId, roomCode) {
 }
 
 async function handleSignal(msg) {
-    if (!msg.data || !msg.data.ip) {
+    const peerCandidates = normalizeCandidates(msg.data?.ips || msg.data?.ip);
+    if (!msg.data || peerCandidates.length === 0) {
         log("收到无效的 signal 数据，已忽略", "error");
         return;
     }
 
-    const peerIp = msg.data.ip;
     const peerId = msg.peerId;
-    log(`收到 ${peerId} 的打洞地址: ${peerIp}`);
+    log(`收到 ${peerId} 的 ${peerCandidates.length} 个打洞候选: ${peerCandidates.join(", ")}`);
 
     if (currentRole === "host") {
         const peerState = peerNegotiations.get(peerId);
         if (peerState && peerState.step1Done) {
-            await executeStep2(peerIp, peerId);
+            await executeStep2(peerCandidates, peerId);
         } else if (peerState) {
-            peerState.pendingPeerIp = peerIp;
+            peerState.pendingPeerIp = peerCandidates;
             log(`等待与 ${peerId} 的 STUN 探测完成...`, "info");
         }
         return;
@@ -534,14 +573,15 @@ async function handleSignal(msg) {
     }
 
     if (step1Done) {
-        await executeStep2(peerIp, peerId);
+        await executeStep2(peerCandidates, peerId);
     } else {
-        pendingPeerIp = peerIp;
+        pendingPeerIp = peerCandidates;
         log("等待自身 STUN 探测完成...", "info");
     }
 }
 
-async function executeStep2(peerIp, peerId) {
+async function executeStep2(peerCandidates, peerId) {
+    const peerIp = candidatesToWire(peerCandidates);
     if (currentRole === "host") {
         try {
             const port = parseInt(state.host.port, 10);
@@ -552,7 +592,7 @@ async function executeStep2(peerIp, peerId) {
             }
 
             const peerState = peerNegotiations.get(peerId);
-            const stunAddr = peerState ? peerState.myStunIp : "";
+            const stunAddr = peerState ? primaryCandidate(peerState.myStunIp) : "";
             if (!stunAddr) {
                 log(`[${peerId}] 无法找到 STUN 地址，跳过`, "error");
                 setRoleState("host", { status: "error", busy: false });
@@ -586,7 +626,7 @@ async function executeStep2(peerIp, peerId) {
                 : `自动候选 ${guestAutoPortAttempt + 1}`;
             log(`连接端代理端口选择: ${localPort} (${autoLabel})`, "info");
         }
-        await invoke("guest_step2_connect", { hostIp: peerIp, localPort, stunAddr: myStunIp });
+        await invoke("guest_step2_connect", { hostIp: peerIp, localPort, stunAddr: primaryCandidate(myStunIp) });
         setRoleState("guest", { status: "ready", busy: false });
         log("隧道已建立，可以进入 Minecraft。", "success");
     } catch (err) {
@@ -599,19 +639,20 @@ async function startP2PNegotiationForPeer(peerId) {
     try {
         log(`[${peerId}] 调用 Rust 底层探测自身公网 IP...`);
         const peerStunIp = await invoke("step1_get_ip");
-        log(`[${peerId}] 自身探测到的公网地址: ${peerStunIp}`);
+        const peerStunIps = normalizeCandidates(peerStunIp);
+        log(`[${peerId}] 自身探测到 ${peerStunIps.length} 个公网候选: ${peerStunIps.join(", ")}`);
 
         const peerState = peerNegotiations.get(peerId);
         if (peerState) {
             peerState.step1Done = true;
-            peerState.myStunIp = peerStunIp;
+            peerState.myStunIp = peerStunIps;
         }
 
         const hostPort = parseValidPort(state.host.port);
         ws.send(JSON.stringify({
             type: "signal",
             targetPeerId: peerId,
-            data: { ip: peerStunIp, hostPort },
+            data: { ip: primaryCandidate(peerStunIps), ips: peerStunIps, hostPort },
         }));
 
         if (peerState && peerState.pendingPeerIp) {
@@ -630,13 +671,14 @@ async function startP2PNegotiation() {
     try {
         log("调用 Rust 底层探测自身公网 IP...");
         myStunIp = await invoke("step1_get_ip");
-        log(`自身探测到的公网地址: ${myStunIp}`);
+        myStunIp = normalizeCandidates(myStunIp);
+        log(`自身探测到 ${myStunIp.length} 个公网候选: ${myStunIp.join(", ")}`);
 
         step1Done = true;
 
         ws.send(JSON.stringify({
             type: "signal",
-            data: { ip: myStunIp },
+            data: { ip: primaryCandidate(myStunIp), ips: myStunIp },
         }));
 
         if (pendingPeerIp) {

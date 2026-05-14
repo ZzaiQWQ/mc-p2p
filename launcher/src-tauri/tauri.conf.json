@@ -1,8 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "launcher",
+  "productName": "MCQuantumLink",
+  "mainBinaryName": "MCQuantumLink",
   "version": "0.1.0",
-  "identifier": "com.p2p.mc",
+  "identifier": "com.mcquantum.link",
   "build": {
     "frontendDist": "../src"
   },
@@ -10,7 +11,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "launcher",
+        "title": "MCQuantumLink",
         "width": 800,
         "height": 600
       }
